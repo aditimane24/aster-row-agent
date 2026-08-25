@@ -84,6 +84,12 @@ def build_chunks_for_file(path: Path) -> list[Chunk]:
     chunks = []
     for heading, text in chunk_body(body):
         chunk_id = f"{path.name}::{heading or 'intro'}"
+        # If a file is marked superseded, treat its policy_authority as 'none'
+        # for retrieval purposes so it doesn't surface as an authoritative source.
+        policy_auth = meta.get("policy_authority", "unknown")
+        if meta.get("status") == "superseded" and policy_auth == "official":
+            policy_auth = "none"
+
         chunks.append(Chunk(
             chunk_id=chunk_id,
             source_file=path.name,
@@ -92,7 +98,7 @@ def build_chunks_for_file(path: Path) -> list[Chunk]:
             heading=heading,
             text=text,
             status=meta.get("status", "unknown"),
-            policy_authority=meta.get("policy_authority", "unknown"),
+            policy_authority=policy_auth,
             audience=meta.get("audience", "unknown"),
             effective_date=meta.get("effective_date", ""),
             supersedes=meta.get("supersedes", ""),

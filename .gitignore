@@ -5,4 +5,5 @@ __pycache__/
 venv/
 logs/*.jsonl
 data/index.pkl
+dist/
 .pytest_cache/

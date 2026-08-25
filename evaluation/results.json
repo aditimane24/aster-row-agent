@@ -1,0 +1,12 @@
+{
+  "deterministic_evaluation": {
+    "passed": 16,
+    "total": 20,
+    "details": "See scripts/run_evaluation.py output for per-case results. 16/20 passed on current snapshot after retriever tuning."
+  }
+  ,
+  "mock_live_evaluation": {
+    "path": "evaluation/mock_live_results.json",
+    "note": "Full per-case mock agent responses saved. Useful for manual review and demo playback."
+  }
+}

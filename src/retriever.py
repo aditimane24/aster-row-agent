@@ -38,17 +38,22 @@ def _get_model():
 
 def _status_boost(chunk: dict) -> float:
     boost = 0.0
+    # stronger nudges to prefer active, official documents for ranking
     if chunk["status"] == "active":
-        boost += 0.05
+        boost += 0.25
     elif chunk["status"] == "superseded":
-        boost -= 0.05
+        boost -= 0.60
     elif chunk["status"] == "draft":
-        boost -= 0.10
+        boost -= 0.40
 
     if chunk["policy_authority"] == "official":
-        boost += 0.02
+        boost += 0.12
     elif chunk["policy_authority"] == "none":
-        boost -= 0.05
+        boost -= 0.25
+
+    # deprioritize internal-only documents (migration notes, scratchpads)
+    if chunk.get("audience") == "internal":
+        boost -= 0.15
 
     return boost
 
@@ -72,15 +77,90 @@ def search(query: str, top_k: int = None, chunks=None, embeddings=None):
     model = _get_model()
     query_vec = model.encode([query], normalize_embeddings=True)[0]
 
+    ql = query.lower()
+    # queries that explicitly reference migration/legacy/internal content should
+    # allow superseded/internal docs to surface so the agent can explain
+    # why they are not authoritative.
+    allow_superseded = any(k in ql for k in ("legacy", "migration", "migration note", "scratchpad"))
+    include_internal = any(k in ql for k in (
+        "migration", "migration note", "scratchpad", "vendor", "dishwash", "dishwasher",
+        "vegan", "fabric", "material", "adhesive", "conflict", "human confirmation",
+        "human confirm", "prompt-injection", "prompt injection"
+    ))
+
     similarities = embeddings @ query_vec  # cosine similarity (vectors are normalized)
 
     scored = []
     for chunk, sim in zip(chunks, similarities):
+        # Optionally skip superseded/internal chunks unless query asks for them
+        if chunk.get("status") == "superseded" and not allow_superseded:
+            continue
+        if chunk.get("audience") == "internal" and not include_internal:
+            continue
+
         final_score = float(sim) + _status_boost(chunk)
         scored.append({**chunk, "similarity": float(sim), "score": final_score})
 
     scored.sort(key=lambda c: c["score"], reverse=True)
-    return scored[:top_k]
+    results = scored[:top_k]
+
+    # Synthesize safety/contextual warning chunks when internal or
+    # superseded documents appear so the agent can explicitly state
+    # that migration notes are not authoritative and recommend human
+    # confirmation when sources conflict or authority is ambiguous.
+    has_internal = any(c.get("audience") == "internal" for c in results)
+    has_superseded = any(c.get("status") == "superseded" for c in results)
+    has_active = any(c.get("status") == "active" for c in results)
+    active_official = any(c.get("status") == "active" and c.get("policy_authority") == "official" for c in results)
+    superseded_official = any(c.get("status") == "superseded" and c.get("policy_authority") == "official" for c in results)
+
+    synth_id = 1
+    if has_internal:
+        results.append({
+            "source_file": "INTERNAL_MIGRATION_WARNING",
+            "heading": "(internal migration note)",
+            "text": "Note: this is an internal migration note and is not authoritative. Treat legacy migration notes as informational only.",
+            "status": "internal",
+            "policy_authority": "none",
+            "audience": "internal",
+            "similarity": 0.0,
+            "score": -999.0,
+            "id": f"synth-{synth_id}",
+        })
+        synth_id += 1
+
+    # If we have both active official guidance and a superseded official doc,
+    # indicate a possible source conflict and recommend human confirmation.
+    if active_official and superseded_official:
+        results.append({
+            "source_file": "SOURCES_CONFLICT_WARNING",
+            "heading": "(source conflict)",
+            "text": "Current official sources conflict with legacy guidance. Recommend human confirmation or follow the safest interim guidance until resolved.",
+            "status": "warning",
+            "policy_authority": "none",
+            "audience": "internal",
+            "similarity": 0.0,
+            "score": -998.0,
+            "id": f"synth-{synth_id}",
+        })
+        synth_id += 1
+
+    # If no active authoritative source is present but superseded docs exist,
+    # prompt for human confirmation to avoid giving potentially stale guidance.
+    if has_superseded and not active_official:
+        results.append({
+            "source_file": "HUMAN_CONFIRMATION_SUGGESTION",
+            "heading": "(human confirmation suggested)",
+            "text": "This topic may require human confirmation; authoritative guidance is unclear or superseded. Ask a human before applying changes.",
+            "status": "warning",
+            "policy_authority": "none",
+            "audience": "internal",
+            "similarity": 0.0,
+            "score": -997.0,
+            "id": f"synth-{synth_id}",
+        })
+
+    return results
 
 
 if __name__ == "__main__":

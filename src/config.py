@@ -20,7 +20,8 @@ LOGS_DIR = ROOT_DIR / "logs"
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # 'anthropic' | 'google' | 'mock'
 
 # --- Retrieval settings ---
-TOP_K = int(os.getenv("TOP_K", "5"))
+TOP_K = int(os.getenv("TOP_K", "15"))
 CHUNK_MAX_CHARS = 900  # roughly one policy section per chunk
